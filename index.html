@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Language!</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=SUSE:wght@100&family=Kanit:wght@100&display=swap"
+            rel="stylesheet"
+        />
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                color: #e0e6ed;
+                font-family: "SUSE", monospace;
+                height: 100vh;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                overflow: hidden;
+            }
+
+            .container {
+                text-align: center;
+                max-width: 90vw;
+                padding: 2rem;
+            }
+
+            .status {
+                position: fixed;
+                top: 2rem;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(255, 255, 255, 0.1);
+                backdrop-filter: blur(10px);
+                border-radius: 2rem;
+                padding: 0.8rem 1.5rem;
+                font-size: 0.9rem;
+                font-weight: 300;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                transition: all 0.3s ease;
+            }
+
+            .status.recording {
+                background: rgba(255, 82, 82, 0.2);
+                border-color: rgba(255, 82, 82, 0.5);
+                animation: pulse 1.5s infinite;
+            }
+
+            .status.processing {
+                background: rgba(255, 193, 7, 0.2);
+                border-color: rgba(255, 193, 7, 0.5);
+            }
+
+            .status.ready {
+                background: rgba(40, 167, 69, 0.2);
+                border-color: rgba(40, 167, 69, 0.5);
+            }
+
+            @keyframes pulse {
+                0%,
+                100% {
+                    transform: translateX(-50%) scale(1);
+                }
+                50% {
+                    transform: translateX(-50%) scale(1.05);
+                }
+            }
+
+            .english-text {
+                font-family: "SUSE", monospace;
+                font-weight: 100;
+                font-size: clamp(2rem, 8vw, 6rem);
+                line-height: 1.2;
+                margin-bottom: 2rem;
+                opacity: 0;
+                transform: translateY(20px);
+                transition: all 0.8s ease;
+                text-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            }
+
+            .english-text.visible {
+                opacity: 1;
+                transform: translateY(0);
+            }
+
+            .thai-text {
+                font-family: "Kanit", sans-serif;
+                font-weight: 100;
+                font-size: clamp(1.5rem, 6vw, 4.5rem);
+                line-height: 1.3;
+                opacity: 0;
+                transform: translateY(30px);
+                transition: all 1s ease 0.5s;
+                color: #a8b5c4;
+            }
+
+            .thai-text.visible {
+                opacity: 1;
+                transform: translateY(0);
+            }
+
+            .thai-word {
+                display: inline-block;
+                padding: 0.2rem 0.4rem;
+                margin: 0.1rem;
+                border-radius: 0.5rem;
+                transition: all 0.3s ease;
+            }
+
+            .thai-word.highlighted {
+                background: rgba(255, 255, 255, 0.2);
+                color: #ffffff;
+                transform: scale(1.1);
+                box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
+            }
+
+            .instructions {
+                position: fixed;
+                bottom: 2rem;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(0, 0, 0, 0.3);
+                backdrop-filter: blur(10px);
+                border-radius: 1rem;
+                padding: 1rem 2rem;
+                font-size: 0.8rem;
+                opacity: 0.7;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            .loading-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.8);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                flex-direction: column;
+                z-index: 1000;
+            }
+
+            .spinner {
+                width: 3rem;
+                height: 3rem;
+                border: 2px solid rgba(255, 255, 255, 0.3);
+                border-top: 2px solid #ffffff;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin-bottom: 1rem;
+            }
+
+            @keyframes spin {
+                0% {
+                    transform: rotate(0deg);
+                }
+                100% {
+                    transform: rotate(360deg);
+                }
+            }
+
+            .error {
+                color: #ff5252;
+                margin-top: 1rem;
+                font-size: 0.9rem;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="loading-overlay" id="loadingOverlay">
+            <div class="spinner"></div>
+            <div>Loading Whisper...</div>
+        </div>
+
+        <div class="status" id="status">Press SPACE to start recording</div>
+
+        <div class="container">
+            <div class="english-text" id="englishText"></div>
+            <div class="thai-text" id="thaiText"></div>
+        </div>
+
+        <div class="instructions">
+            <strong>SPACE:</strong> Record → Transcribe → Translate<br />
+            <strong>SHIFT:</strong> Repeat English → Thai playback
+        </div>
+
+        <script type="module">
+            import {
+                pipeline,
+                env,
+            } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
+
+            // Configure Transformers.js for web environment
+            env.allowRemoteModels = true;
+            env.allowLocalModels = false;
+
+            class LanguageLearner {
+                constructor() {
+                    this.whisper = null;
+                    this.mediaRecorder = null;
+                    this.audioChunks = [];
+                    this.isRecording = false;
+                    this.currentAudioBlob = null;
+                    this.currentEnglish = "";
+                    this.currentThai = "";
+                    this.isProcessing = false;
+                    this.synthUtterance = null;
+
+                    this.statusEl = document.getElementById("status");
+                    this.englishEl = document.getElementById("englishText");
+                    this.thaiEl = document.getElementById("thaiText");
+                    this.loadingEl = document.getElementById("loadingOverlay");
+
+                    this.init();
+                }
+
+                async init() {
+                    try {
+                        await this.loadWhisper();
+                        await this.setupAudio();
+                        this.setupEventListeners();
+                        this.loadingEl.style.display = "none";
+                        this.updateStatus(
+                            "Press SPACE to start recording",
+                            "ready",
+                        );
+                    } catch (error) {
+                        console.error("Initialization error:", error);
+                        this.showError(
+                            "Failed to initialize. Please refresh and try again.",
+                        );
+                    }
+                }
+
+                async loadWhisper() {
+                    try {
+                        this.whisper = await pipeline(
+                            "automatic-speech-recognition",
+                            "Xenova/whisper-tiny",
+                            {
+                                progress_callback: (progress) => {
+                                    if (progress.status === "progress") {
+                                        const percent = Math.round(
+                                            (progress.loaded / progress.total) *
+                                                100,
+                                        );
+                                        document
+                                            .getElementById("loadingOverlay")
+                                            .querySelector(
+                                                "div:last-child",
+                                            ).textContent =
+                                            `Loading Whisper model... ${percent}%`;
+                                    }
+                                },
+                            },
+                        );
+                    } catch (error) {
+                        console.error("Failed to load Whisper:", error);
+                        throw error;
+                    }
+                }
+
+                async setupAudio() {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            sampleRate: 16000,
+                            channelCount: 1,
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                        },
+                    });
+
+                    this.mediaRecorder = new MediaRecorder(stream, {
+                        mimeType: "audio/webm;codecs=opus",
+                    });
+
+                    this.mediaRecorder.ondataavailable = (event) => {
+                        if (event.data.size > 0) {
+                            this.audioChunks.push(event.data);
+                        }
+                    };
+
+                    this.mediaRecorder.onstop = async () => {
+                        this.currentAudioBlob = new Blob(this.audioChunks, {
+                            type: "audio/webm",
+                        });
+                        this.audioChunks = [];
+                        await this.processAudio();
+                    };
+                }
+
+                setupEventListeners() {
+                    document.addEventListener("keydown", (e) => {
+                        if (e.code === "Space" && !this.isProcessing) {
+                            e.preventDefault();
+                            this.startRecording();
+                        } else if (
+                            e.code === "ShiftLeft" ||
+                            e.code === "ShiftRight"
+                        ) {
+                            e.preventDefault();
+                            if (
+                                this.currentEnglish &&
+                                this.currentThai &&
+                                !this.isProcessing
+                            ) {
+                                this.playbackCycle();
+                            }
+                        }
+                    });
+
+                    document.addEventListener("keyup", (e) => {
+                        if (e.code === "Space" && this.isRecording) {
+                            e.preventDefault();
+                            this.stopRecording();
+                        }
+                    });
+                }
+
+                startRecording() {
+                    if (this.isRecording || this.isProcessing) return;
+
+                    this.isRecording = true;
+                    this.audioChunks = [];
+                    this.mediaRecorder.start();
+                    this.updateStatus(
+                        "🎤 Recording... (release SPACE to stop)",
+                        "recording",
+                    );
+                    this.reset();
+                }
+
+                stopRecording() {
+                    if (!this.isRecording) return;
+
+                    this.isRecording = false;
+                    this.mediaRecorder.stop();
+                    this.updateStatus("Processing...", "processing");
+                    this.isProcessing = true;
+                }
+
+                async processAudio() {
+                    try {
+                        // Convert blob to audio buffer for Whisper
+                        const arrayBuffer =
+                            await this.currentAudioBlob.arrayBuffer();
+                        const audioContext = new AudioContext({
+                            sampleRate: 16000,
+                        });
+                        const audioBuffer =
+                            await audioContext.decodeAudioData(arrayBuffer);
+
+                        // Convert to the format Whisper expects
+                        const audioArray = audioBuffer.getChannelData(0);
+
+                        // Transcribe with Whisper
+                        const result = await this.whisper(audioArray, {
+                            chunk_length_s: 30,
+                            stride_length_s: 5,
+                            language: "english",
+                            task: "transcribe",
+                        });
+
+                        this.currentEnglish = result.text.trim();
+
+                        if (!this.currentEnglish) {
+                            throw new Error("No speech detected");
+                        }
+
+                        // Display English text
+                        this.displayEnglish();
+
+                        // Translate to Thai
+                        await this.translateToThai();
+
+                        // Start playback cycle
+                        await this.playbackCycle();
+                    } catch (error) {
+                        console.error("Processing error:", error);
+                        this.showError(
+                            "Failed to process audio. Please try again.",
+                        );
+                    } finally {
+                        this.isProcessing = false;
+                        this.updateStatus(
+                            "Press SPACE to start recording",
+                            "ready",
+                        );
+                    }
+                }
+
+                async translateToThai() {
+                    try {
+                        const response = await fetch(
+                            "http://localhost:11434/api/generate",
+                            {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json",
+                                },
+                                body: JSON.stringify({
+                                    model: "llama3.1",
+                                    prompt: `Translate this English text to Thai. Respond with ONLY the Thai translation, no explanation: "${this.currentEnglish}"`,
+                                    stream: false,
+                                }),
+                            },
+                        );
+
+                        if (!response.ok) {
+                            throw new Error(
+                                `Ollama request failed: ${response.status}`,
+                            );
+                        }
+
+                        const data = await response.json();
+                        this.currentThai = data.response.trim();
+
+                        // Display Thai text
+                        this.displayThai();
+                    } catch (error) {
+                        console.error("Translation error:", error);
+                        this.currentThai = "Translation failed";
+                        this.displayThai();
+                    }
+                }
+
+                displayEnglish() {
+                    this.englishEl.textContent = this.currentEnglish;
+                    this.englishEl.classList.add("visible");
+                }
+
+                displayThai() {
+                    // Split Thai text into words and wrap each in a span
+                    const words = this.currentThai.split(/(\s+)/);
+                    this.thaiEl.innerHTML = words
+                        .map((word, index) => {
+                            if (word.trim()) {
+                                return `<span class="thai-word" data-index="${index}">${word}</span>`;
+                            }
+                            return word;
+                        })
+                        .join("");
+
+                    this.thaiEl.classList.add("visible");
+                }
+
+                async playbackCycle() {
+                    try {
+                        // Play original English audio
+                        await this.playAudio(this.currentAudioBlob);
+
+                        // Wait a moment
+                        await this.sleep(500);
+
+                        // Speak Thai with highlighting
+                        await this.speakThaiWithHighlighting();
+                    } catch (error) {
+                        console.error("Playback error:", error);
+                    }
+                }
+
+                playAudio(blob) {
+                    return new Promise((resolve) => {
+                        const audio = new Audio(URL.createObjectURL(blob));
+                        audio.onended = resolve;
+                        audio.onerror = resolve;
+                        audio.play();
+                    });
+                }
+
+                speakThaiWithHighlighting() {
+                    return new Promise((resolve) => {
+                        if (
+                            !this.currentThai ||
+                            this.currentThai === "Translation failed"
+                        ) {
+                            resolve();
+                            return;
+                        }
+
+                        // Cancel any existing speech
+                        speechSynthesis.cancel();
+
+                        const utterance = new SpeechSynthesisUtterance(
+                            this.currentThai,
+                        );
+
+                        // Try to find a Thai voice, fallback to default
+                        const voices = speechSynthesis.getVoices();
+                        const thaiVoice = voices.find((voice) =>
+                            voice.lang.includes("th"),
+                        );
+                        if (thaiVoice) {
+                            utterance.voice = thaiVoice;
+                        }
+
+                        utterance.rate = 0.8;
+                        utterance.pitch = 1;
+
+                        // Word highlighting during speech
+                        const words =
+                            this.thaiEl.querySelectorAll(".thai-word");
+                        let currentWordIndex = 0;
+
+                        utterance.onboundary = (event) => {
+                            if (
+                                event.name === "word" &&
+                                currentWordIndex < words.length
+                            ) {
+                                // Remove previous highlighting
+                                words.forEach((word) =>
+                                    word.classList.remove("highlighted"),
+                                );
+
+                                // Highlight current word
+                                if (words[currentWordIndex]) {
+                                    words[currentWordIndex].classList.add(
+                                        "highlighted",
+                                    );
+                                    currentWordIndex++;
+                                }
+                            }
+                        };
+
+                        utterance.onend = () => {
+                            // Remove all highlighting
+                            words.forEach((word) =>
+                                word.classList.remove("highlighted"),
+                            );
+                            resolve();
+                        };
+
+                        utterance.onerror = () => {
+                            words.forEach((word) =>
+                                word.classList.remove("highlighted"),
+                            );
+                            resolve();
+                        };
+
+                        speechSynthesis.speak(utterance);
+                        this.synthUtterance = utterance;
+                    });
+                }
+
+                reset() {
+                    this.englishEl.classList.remove("visible");
+                    this.thaiEl.classList.remove("visible");
+                    this.englishEl.textContent = "";
+                    this.thaiEl.innerHTML = "";
+                    this.currentEnglish = "";
+                    this.currentThai = "";
+
+                    // Cancel any ongoing speech
+                    speechSynthesis.cancel();
+                }
+
+                updateStatus(message, type = "") {
+                    this.statusEl.textContent = message;
+                    this.statusEl.className = `status ${type}`;
+                }
+
+                showError(message) {
+                    this.updateStatus(`❌ ${message}`, "error");
+                    setTimeout(() => {
+                        this.updateStatus(
+                            "Press SPACE to start recording",
+                            "ready",
+                        );
+                    }, 3000);
+                }
+
+                sleep(ms) {
+                    return new Promise((resolve) => setTimeout(resolve, ms));
+                }
+            }
+
+            // Initialize the app
+            new LanguageLearner();
+        </script>
+    </body>
+</html>
