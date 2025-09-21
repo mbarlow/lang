@@ -490,14 +490,117 @@
                             return;
                         }
 
-                        // Cancel any existing speech
+                        // Split text into chunks if needed (Google TTS has ~200 char limit)
+                        const chunks = this.splitTextIntoChunks(
+                            this.currentThai,
+                            200,
+                        );
+                        const words =
+                            this.thaiEl.querySelectorAll(".thai-word");
+
+                        // Play chunks sequentially
+                        let chunkIndex = 0;
+
+                        const playNextChunk = () => {
+                            if (chunkIndex >= chunks.length) {
+                                // Remove all highlighting when done
+                                words.forEach((word) =>
+                                    word.classList.remove("highlighted"),
+                                );
+                                resolve();
+                                return;
+                            }
+
+                            const chunk = chunks[chunkIndex];
+                            const audio = new Audio(
+                                `https://translate.google.com/translate_tts?ie=UTF-8&tl=th&client=tw-ob&q=${encodeURIComponent(chunk)}`,
+                            );
+
+                            // Highlight words for current chunk
+                            const chunkWords = chunk.split(/\s+/);
+                            let wordStartIndex = 0;
+                            for (let i = 0; i < chunkIndex; i++) {
+                                wordStartIndex += chunks[i].split(/\s+/).length;
+                            }
+
+                            // Simple highlighting: highlight all words in current chunk
+                            audio.onplay = () => {
+                                words.forEach((word, index) => {
+                                    if (
+                                        index >= wordStartIndex &&
+                                        index <
+                                            wordStartIndex + chunkWords.length
+                                    ) {
+                                        word.classList.add("highlighted");
+                                    } else {
+                                        word.classList.remove("highlighted");
+                                    }
+                                });
+                            };
+
+                            audio.onended = () => {
+                                chunkIndex++;
+                                playNextChunk();
+                            };
+
+                            audio.onerror = (error) => {
+                                console.error("Google TTS error:", error);
+                                // Fallback to browser TTS if Google TTS fails
+                                this.fallbackToWebSpeech(this.currentThai).then(
+                                    resolve,
+                                );
+                            };
+
+                            audio.play().catch((error) => {
+                                console.error(
+                                    "Failed to play Google TTS:",
+                                    error,
+                                );
+                                // Fallback to browser TTS
+                                this.fallbackToWebSpeech(this.currentThai).then(
+                                    resolve,
+                                );
+                            });
+                        };
+
+                        playNextChunk();
+                    });
+                }
+
+                splitTextIntoChunks(text, maxLength) {
+                    if (text.length <= maxLength) return [text];
+
+                    const chunks = [];
+                    const words = text.split(/\s+/);
+                    let currentChunk = "";
+
+                    for (const word of words) {
+                        if (
+                            (currentChunk + " " + word).length > maxLength &&
+                            currentChunk
+                        ) {
+                            chunks.push(currentChunk.trim());
+                            currentChunk = word;
+                        } else {
+                            currentChunk = currentChunk
+                                ? currentChunk + " " + word
+                                : word;
+                        }
+                    }
+
+                    if (currentChunk) {
+                        chunks.push(currentChunk.trim());
+                    }
+
+                    return chunks;
+                }
+
+                fallbackToWebSpeech(text) {
+                    return new Promise((resolve) => {
+                        console.log("Falling back to Web Speech API");
                         speechSynthesis.cancel();
 
-                        const utterance = new SpeechSynthesisUtterance(
-                            this.currentThai,
-                        );
-
-                        // Try to find a Thai voice, fallback to default
+                        const utterance = new SpeechSynthesisUtterance(text);
                         const voices = speechSynthesis.getVoices();
                         const thaiVoice = voices.find((voice) =>
                             voice.lang.includes("th"),
@@ -507,50 +610,10 @@
                         }
 
                         utterance.rate = 0.8;
-                        utterance.pitch = 1;
-
-                        // Word highlighting during speech
-                        const words =
-                            this.thaiEl.querySelectorAll(".thai-word");
-                        let currentWordIndex = 0;
-
-                        utterance.onboundary = (event) => {
-                            if (
-                                event.name === "word" &&
-                                currentWordIndex < words.length
-                            ) {
-                                // Remove previous highlighting
-                                words.forEach((word) =>
-                                    word.classList.remove("highlighted"),
-                                );
-
-                                // Highlight current word
-                                if (words[currentWordIndex]) {
-                                    words[currentWordIndex].classList.add(
-                                        "highlighted",
-                                    );
-                                    currentWordIndex++;
-                                }
-                            }
-                        };
-
-                        utterance.onend = () => {
-                            // Remove all highlighting
-                            words.forEach((word) =>
-                                word.classList.remove("highlighted"),
-                            );
-                            resolve();
-                        };
-
-                        utterance.onerror = () => {
-                            words.forEach((word) =>
-                                word.classList.remove("highlighted"),
-                            );
-                            resolve();
-                        };
+                        utterance.onend = resolve;
+                        utterance.onerror = resolve;
 
                         speechSynthesis.speak(utterance);
-                        this.synthUtterance = utterance;
                     });
                 }
 
