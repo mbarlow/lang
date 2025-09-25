@@ -317,6 +317,9 @@ class LanguageLearner {
                     `https://translate.google.com/translate_tts?ie=UTF-8&tl=th&client=tw-ob&q=${encodeURIComponent(chunk)}`,
                 );
 
+                // Slow down the Thai speech to half speed
+                audio.playbackRate = 0.5;
+
                 // Highlight words for current chunk
                 const chunkWords = chunk.split(/\s+/);
                 let wordStartIndex = 0;
@@ -410,7 +413,7 @@ class LanguageLearner {
                 utterance.voice = thaiVoice;
             }
 
-            utterance.rate = 0.8;
+            utterance.rate = 0.5;
             utterance.onend = resolve;
             utterance.onerror = resolve;
 
