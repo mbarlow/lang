@@ -31,6 +31,14 @@ A web-based language learning tool that helps users practice English to Thai tra
 - Ollama server running locally with Gemma3 model installed
 - Internet connection for loading AI models and TTS services
 
+## Ollama Setup
+
+For the translation feature to work from the GitHub Pages hosted site, you need to run Ollama with CORS enabled:
+
+```bash
+OLLAMA_ORIGINS="https://mbarlow.github.io" ollama serve
+```
+
 ## Local Development
 
 Simply open `index.html` in a web browser or serve the files using any static file server.
